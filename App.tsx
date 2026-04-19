@@ -1,20 +1,45 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { useFonts, Inter_400Regular, Inter_500Medium } from '@expo-google-fonts/inter';
+import { loadUserProfile, clearAllData } from './src/utils/storage';
+import { RootNavigator } from './src/navigation';
+import { COLORS } from './src/constants/theme';
 
 export default function App() {
-  return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-  );
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+  });
+
+  useEffect(() => {
+    async function checkOnboarding() {
+      await clearAllData(); // temporary - remove after testing
+      const profile = await loadUserProfile();
+      setOnboardingComplete(profile?.onboardingComplete ?? false);
+      setLoading(false);
+    }
+    checkOnboarding();
+  }, []);
+
+  if (!fontsLoaded || loading) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator color={COLORS.primary} />
+      </View>
+    );
+  }
+
+  return <RootNavigator onboardingComplete={onboardingComplete} onComplete={() => setOnboardingComplete(true)} />;
 }
 
 const styles = StyleSheet.create({
-  container: {
+  loader: {
     flex: 1,
-    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: COLORS.background,
   },
 });
