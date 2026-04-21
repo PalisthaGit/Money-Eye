@@ -1,82 +1,122 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Animated,
   ActivityIndicator,
 } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT, RADIUS } from '../constants/theme';
 import { saveUserProfile } from '../utils/storage';
-import {
-  calcFreeMoney,
-  calcEmergencyTarget,
-  calcInvestmentSlice,
-  calcSpendingMoney,
-} from '../utils/calculations';
+import { calcBudgets, calcEmergencyTarget } from '../utils/calculations';
 import { useOnboardingComplete } from '../navigation';
 import { OnboardingStackParamList } from '../navigation';
 
 type Route = RouteProp<OnboardingStackParamList, 'Plan'>;
 
+function fmt(value: number, currency: string): string {
+  return `${currency} ${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function AnimatedBar({ pct, color, trackColor }: { pct: number; color: string; trackColor: string }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: Math.min(pct, 100),
+      duration: 800,
+      useNativeDriver: false,
+    }).start();
+  }, [pct]);
+
+  const width = anim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
+
+  return (
+    <View style={[styles.barTrack, { backgroundColor: trackColor }]}>
+      <Animated.View style={[styles.barFill, { width, backgroundColor: color }]} />
+    </View>
+  );
+}
+
 export default function PlanScreen() {
   const onComplete = useOnboardingComplete();
-  const { params } = useRoute<Route>();
-  const { salary, currency, unavoidables } = params;
+  const insets = useSafeAreaInsets();
+  const route = useRoute<Route>();
+  const { name, salary, currency, bills } = route.params;
   const [saving, setSaving] = useState(false);
 
-  const freeMoney = calcFreeMoney(salary, unavoidables);
-  const emergencyTarget = calcEmergencyTarget(unavoidables);
-  const investmentSlice = calcInvestmentSlice(freeMoney);
-  const spendingMoney = calcSpendingMoney(freeMoney, investmentSlice);
+  const { spend, invest, emergency, totalBills } = calcBudgets(salary, bills);
+  const emergencyTarget = calcEmergencyTarget(bills);
 
-  const fmt = (n: number) => `${currency} ${n.toFixed(2)}`;
+  const billsPct = salary > 0 ? Math.min((totalBills / salary) * 100, 100) : 0;
+  const spendPct = salary > 0 ? Math.min((spend / salary) * 100, 100) : 0;
+  const investPct = salary > 0 ? Math.min((invest / salary) * 100, 100) : 0;
+  const emergencyPct = salary > 0 ? Math.min((emergency / salary) * 100, 100) : 0;
 
   async function handleStart() {
     setSaving(true);
     await saveUserProfile({
+      name,
       salary,
+      bills,
+      spendBudget: spend,
+      investBudget: invest,
+      emergencyTarget,
       currency,
-      unavoidables,
-      emergencyFundTarget: emergencyTarget,
-      investmentSlice,
       onboardingComplete: true,
     });
     onComplete();
   }
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.container}>
-      <Text style={styles.step}>Step 4 of 4</Text>
-      <Text style={styles.title}>Your Plan is Ready</Text>
-      <Text style={styles.subtitle}>
-        Here's how to put your free money to work every month.
-      </Text>
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 24 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.step}>4 of 4</Text>
+      <Text style={styles.title}>{name}, here's your plan</Text>
+      <Text style={styles.subtitle}>Based on your salary and fixed bills.</Text>
 
-      <View style={[styles.card, styles.tealCard]}>
-        <Text style={[styles.cardLabel, { color: COLORS.tealDeep }]}>Emergency Fund Target</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.teal }]}>{fmt(emergencyTarget)}</Text>
-        <Text style={[styles.cardNote, { color: COLORS.teal }]}>
-          6 months of fixed costs — build this before investing aggressively
-        </Text>
+      {/* Fixed bills card */}
+      <View style={[styles.card, { backgroundColor: COLORS.grayLight, borderColor: COLORS.gray }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.gray }]}>FIXED BILLS</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.textPrimary }]}>{fmt(totalBills, currency)}</Text>
+        <Text style={styles.cardSub}>{Math.round(billsPct)}% of salary</Text>
+        <AnimatedBar pct={billsPct} color={COLORS.gray} trackColor={COLORS.border} />
       </View>
 
-      <View style={[styles.card, styles.tealCard]}>
-        <Text style={[styles.cardLabel, { color: COLORS.tealDeep }]}>Monthly Investment (20%)</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.teal }]}>{fmt(investmentSlice)}</Text>
-        <Text style={[styles.cardNote, { color: COLORS.teal }]}>
-          Pay yourself first — index funds, ETFs, or savings
-        </Text>
+      {/* Spending budget card */}
+      <View style={[styles.card, { backgroundColor: COLORS.redLight, borderColor: COLORS.red }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.redDark }]}>SPENDING BUDGET</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.red }]}>{fmt(spend, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.redDark }]}>guilt-free spending</Text>
+        <AnimatedBar pct={spendPct} color={COLORS.red} trackColor='#F9C8C8' />
       </View>
 
-      <View style={[styles.card, styles.primaryCard]}>
-        <Text style={[styles.cardLabel, { color: COLORS.primary }]}>Spending Money</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.primary }]}>{fmt(spendingMoney)}</Text>
-        <Text style={[styles.cardNote, { color: COLORS.primaryMid }]}>
-          Free money after investing — guilt-free spending budget
+      {/* Investment card */}
+      <View style={[styles.card, { backgroundColor: COLORS.purpleLight, borderColor: COLORS.purple }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTMENT · 20%</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.purple }]}>{fmt(invest, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.purpleDark }]}>pay yourself first</Text>
+        <AnimatedBar pct={investPct} color={COLORS.purple} trackColor='#D6D3F8' />
+      </View>
+
+      {/* Emergency fund card */}
+      <View style={[styles.card, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY FUND · 10%</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.blue }]}>{fmt(emergency, currency)}/month</Text>
+        <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>
+          target: {fmt(emergencyTarget, currency)} (6 months of bills)
         </Text>
+        <AnimatedBar pct={emergencyPct} color={COLORS.blue} trackColor='#C2DCF5' />
       </View>
 
       <TouchableOpacity
@@ -88,7 +128,7 @@ export default function PlanScreen() {
         {saving ? (
           <ActivityIndicator color={COLORS.white} />
         ) : (
-          <Text style={styles.buttonText}>Start tracking</Text>
+          <Text style={styles.buttonText}>Start tracking →</Text>
         )}
       </TouchableOpacity>
     </ScrollView>
@@ -96,79 +136,77 @@ export default function PlanScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: COLORS.background },
+  flex: { flex: 1, backgroundColor: COLORS.white },
   container: {
-    flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 72,
-    paddingBottom: 40,
+    paddingTop: 80,
   },
   step: {
     fontSize: FONT.sizes.sm,
     fontWeight: FONT.weights.medium,
-    color: COLORS.primaryAccent,
-    marginBottom: 12,
-    letterSpacing: 0.5,
+    color: COLORS.green,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 16,
   },
   title: {
-    fontSize: FONT.sizes.xxxl,
-    fontWeight: FONT.weights.medium,
+    fontSize: FONT.sizes.xxl,
+    fontWeight: FONT.weights.bold,
     color: COLORS.textPrimary,
     marginBottom: 8,
-    lineHeight: 38,
+    lineHeight: 34,
   },
   subtitle: {
     fontSize: FONT.sizes.md,
     color: COLORS.textSecondary,
     marginBottom: 32,
-    lineHeight: 22,
   },
   card: {
-    backgroundColor: COLORS.white,
     borderRadius: RADIUS.card,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 20,
-    marginBottom: 16,
-  },
-  tealCard: {
-    backgroundColor: COLORS.tealLight,
-    borderColor: '#99F6E4',
-  },
-  primaryCard: {
-    backgroundColor: COLORS.primarySurface,
-    borderColor: COLORS.primaryLight,
-    marginBottom: 32,
+    padding: 18,
+    marginBottom: 14,
   },
   cardLabel: {
-    fontSize: FONT.sizes.sm,
+    fontSize: FONT.sizes.xs,
     fontWeight: FONT.weights.medium,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    letterSpacing: 0.8,
+    marginBottom: 6,
   },
   cardAmount: {
     fontSize: FONT.sizes.xxl,
-    fontWeight: FONT.weights.medium,
+    fontWeight: FONT.weights.bold,
     marginBottom: 4,
   },
-  cardNote: {
+  cardSub: {
     fontSize: FONT.sizes.sm,
-    lineHeight: 20,
-    marginTop: 4,
+    color: COLORS.textSecondary,
+    marginBottom: 12,
+  },
+  barTrack: {
+    height: 6,
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 6,
+    borderRadius: RADIUS.full,
   },
   button: {
-    backgroundColor: COLORS.primary,
+    marginTop: 8,
+    backgroundColor: COLORS.green,
     borderRadius: RADIUS.button,
-    height: 52,
+    height: 56,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonDisabled: { opacity: 0.6 },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
   buttonText: {
     fontSize: FONT.sizes.md2,
-    fontWeight: FONT.weights.medium,
+    fontWeight: FONT.weights.bold,
     color: COLORS.white,
   },
 });

@@ -9,74 +9,63 @@ import {
   FlatList,
   SafeAreaView,
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT, RADIUS } from '../constants/theme';
-import { saveUserProfile } from '../utils/storage';
 import { OnboardingStackParamList } from '../navigation';
 
 type Nav = NativeStackNavigationProp<OnboardingStackParamList, 'Salary'>;
+type Route = RouteProp<OnboardingStackParamList, 'Salary'>;
 
 const CURRENCIES = [
-  { code: 'USD', name: 'US Dollar' },
-  { code: 'EUR', name: 'Euro' },
-  { code: 'GBP', name: 'British Pound' },
-  { code: 'INR', name: 'Indian Rupee' },
-  { code: 'NPR', name: 'Nepalese Rupee' },
-  { code: 'AUD', name: 'Australian Dollar' },
-  { code: 'CAD', name: 'Canadian Dollar' },
-  { code: 'SGD', name: 'Singapore Dollar' },
-  { code: 'AED', name: 'UAE Dirham' },
-  { code: 'PKR', name: 'Pakistani Rupee' },
-  { code: 'BDT', name: 'Bangladeshi Taka' },
-  { code: 'LKR', name: 'Sri Lankan Rupee' },
-  { code: 'MYR', name: 'Malaysian Ringgit' },
-  { code: 'PHP', name: 'Philippine Peso' },
-  { code: 'IDR', name: 'Indonesian Rupiah' },
-  { code: 'THB', name: 'Thai Baht' },
-  { code: 'KES', name: 'Kenyan Shilling' },
-  { code: 'NGN', name: 'Nigerian Naira' },
-  { code: 'ZAR', name: 'South African Rand' },
-  { code: 'BRL', name: 'Brazilian Real' },
-  { code: 'MXN', name: 'Mexican Peso' },
-  { code: 'JPY', name: 'Japanese Yen' },
-  { code: 'CNY', name: 'Chinese Yuan' },
-  { code: 'KRW', name: 'South Korean Won' },
-  { code: 'CHF', name: 'Swiss Franc' },
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'NPR', symbol: 'NPR', name: 'Nepalese Rupee' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'CAD', symbol: 'CA$', name: 'Canadian Dollar' },
+  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+  { code: 'AED', symbol: 'AED', name: 'UAE Dirham' },
+  { code: 'PKR', symbol: 'PKR', name: 'Pakistani Rupee' },
+  { code: 'BDT', symbol: '৳', name: 'Bangladeshi Taka' },
+  { code: 'LKR', symbol: 'LKR', name: 'Sri Lankan Rupee' },
+  { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit' },
+  { code: 'PHP', symbol: '₱', name: 'Philippine Peso' },
+  { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
+  { code: 'THB', symbol: '฿', name: 'Thai Baht' },
+  { code: 'KES', symbol: 'KES', name: 'Kenyan Shilling' },
+  { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
+  { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
+  { code: 'BRL', symbol: 'R$', name: 'Brazilian Real' },
+  { code: 'MXN', symbol: 'MX$', name: 'Mexican Peso' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'KRW', symbol: '₩', name: 'South Korean Won' },
+  { code: 'CHF', symbol: 'CHF', name: 'Swiss Franc' },
 ];
 
 export default function SalaryScreen() {
   const navigation = useNavigation<Nav>();
+  const route = useRoute<Route>();
+  const insets = useSafeAreaInsets();
+  const { name } = route.params;
+
   const [salary, setSalary] = useState('');
   const [currency, setCurrency] = useState('USD');
-  const [error, setError] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [search, setSearch] = useState('');
 
   const selectedCurrency = CURRENCIES.find(c => c.code === currency)!;
-
   const filtered = CURRENCIES.filter(c => {
     const q = search.toLowerCase();
     return c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
   });
 
-  async function handleContinue() {
-    const num = parseFloat(salary.replace(/,/g, ''));
-    if (!salary || isNaN(num) || num <= 0) {
-      setError('Please enter a valid salary amount.');
-      return;
-    }
-    await saveUserProfile({
-      salary: num,
-      currency,
-      unavoidables: [],
-      emergencyFundTarget: 0,
-      investmentSlice: 0,
-      onboardingComplete: false,
-    });
-    navigation.navigate('Unavoidables', { salary: num, currency });
-  }
+  const num = parseFloat(salary.replace(/,/g, ''));
+  const canContinue = salary.length > 0 && !isNaN(num) && num > 0;
 
   function handleSelect(code: string) {
     setCurrency(code);
@@ -84,18 +73,22 @@ export default function SalaryScreen() {
     setSearch('');
   }
 
+  function handleContinue() {
+    if (!canContinue) return;
+    navigation.navigate('Bills', { name, salary: num, currency });
+  }
+
   return (
     <>
       <KeyboardAwareScrollView
         style={styles.flex}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 24 }]}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid
         extraScrollHeight={16}
       >
-        <Text style={styles.step}>Step 1 of 4</Text>
-        <Text style={styles.title}>What's your monthly take-home?</Text>
-        <Text style={styles.subtitle}>After taxes and deductions</Text>
+        <Text style={styles.step}>2 of 4</Text>
+        <Text style={styles.title}>Hi {name}! What's your monthly salary?</Text>
 
         <Text style={styles.label}>Currency</Text>
         <TouchableOpacity
@@ -111,22 +104,23 @@ export default function SalaryScreen() {
 
         <Text style={styles.label}>Monthly Salary</Text>
         <View style={styles.inputRow}>
-          <Text style={styles.currencySymbol}>{currency}</Text>
+          <Text style={styles.currencyPrefix}>{selectedCurrency.code}</Text>
           <TextInput
             style={styles.input}
-            placeholder="0.00"
+            placeholder="0"
             placeholderTextColor={COLORS.textSecondary}
             keyboardType="numeric"
             value={salary}
-            onChangeText={v => {
-              setSalary(v);
-              setError('');
-            }}
+            onChangeText={setSalary}
           />
         </View>
-        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TouchableOpacity style={styles.button} onPress={handleContinue} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={[styles.button, !canContinue && styles.buttonDisabled]}
+          onPress={handleContinue}
+          activeOpacity={0.85}
+          disabled={!canContinue}
+        >
           <Text style={styles.buttonText}>Continue</Text>
         </TouchableOpacity>
       </KeyboardAwareScrollView>
@@ -145,7 +139,6 @@ export default function SalaryScreen() {
                 <Text style={styles.closeBtn}>✕</Text>
               </TouchableOpacity>
             </View>
-
             <TextInput
               style={styles.searchInput}
               placeholder="Search currency..."
@@ -155,7 +148,6 @@ export default function SalaryScreen() {
               autoCorrect={false}
               clearButtonMode="while-editing"
             />
-
             <FlatList
               data={filtered}
               keyExtractor={item => item.code}
@@ -182,40 +174,34 @@ export default function SalaryScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: COLORS.background },
+  flex: { flex: 1, backgroundColor: COLORS.white },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 72,
-    paddingBottom: 40,
+    paddingTop: 80,
   },
   step: {
     fontSize: FONT.sizes.sm,
     fontWeight: FONT.weights.medium,
-    color: COLORS.primaryAccent,
-    marginBottom: 12,
-    letterSpacing: 0.5,
+    color: COLORS.green,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 16,
   },
   title: {
-    fontSize: FONT.sizes.xxxl,
-    fontWeight: FONT.weights.medium,
+    fontSize: FONT.sizes.xxl,
+    fontWeight: FONT.weights.bold,
     color: COLORS.textPrimary,
-    marginBottom: 8,
-    lineHeight: 38,
-  },
-  subtitle: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.textSecondary,
     marginBottom: 40,
+    lineHeight: 34,
   },
   label: {
     fontSize: FONT.sizes.sm,
     fontWeight: FONT.weights.medium,
     color: COLORS.textSecondary,
-    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    marginBottom: 8,
   },
   selector: {
     flexDirection: 'row',
@@ -223,10 +209,10 @@ const styles = StyleSheet.create({
     height: 48,
     borderWidth: 1.5,
     borderColor: COLORS.border,
-    borderRadius: 8,
+    borderRadius: RADIUS.input,
     backgroundColor: COLORS.white,
     paddingHorizontal: 14,
-    marginBottom: 32,
+    marginBottom: 28,
   },
   selectorText: {
     flex: 1,
@@ -246,9 +232,9 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.input,
     backgroundColor: COLORS.white,
     paddingHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 32,
   },
-  currencySymbol: {
+  currencyPrefix: {
     fontSize: FONT.sizes.md,
     fontWeight: FONT.weights.medium,
     color: COLORS.textSecondary,
@@ -261,21 +247,19 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     paddingVertical: 16,
   },
-  error: {
-    fontSize: FONT.sizes.sm,
-    color: COLORS.danger,
-    marginBottom: 16,
-  },
   button: {
-    marginTop: 32,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.green,
     borderRadius: RADIUS.button,
-    paddingVertical: 16,
+    height: 56,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
   buttonText: {
     fontSize: FONT.sizes.md2,
-    fontWeight: FONT.weights.medium,
+    fontWeight: FONT.weights.bold,
     color: COLORS.white,
   },
   // Modal
@@ -285,7 +269,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
@@ -315,8 +299,8 @@ const styles = StyleSheet.create({
     height: 44,
     borderWidth: 1.5,
     borderColor: COLORS.border,
-    borderRadius: 8,
-    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.input,
+    backgroundColor: COLORS.background,
     paddingHorizontal: 14,
     fontSize: FONT.sizes.md,
     color: COLORS.textPrimary,
@@ -328,7 +312,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   currencyRowActive: {
-    backgroundColor: COLORS.primarySurface,
+    backgroundColor: COLORS.greenLight,
   },
   currencyRowText: {
     flex: 1,
@@ -336,12 +320,12 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
   currencyRowTextActive: {
-    color: COLORS.primary,
+    color: COLORS.green,
     fontWeight: FONT.weights.medium,
   },
   checkmark: {
     fontSize: FONT.sizes.md,
-    color: COLORS.primary,
+    color: COLORS.green,
     fontWeight: FONT.weights.medium,
   },
   separator: {

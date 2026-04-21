@@ -1,31 +1,28 @@
 export const COLORS = {
-  primary: '#065F46',
-  primaryMid: '#059669',
-  primaryAccent: '#10B981',
-  primaryLight: '#A7F3D0',
-  primarySurface: '#D1FAE5',
-  background: '#ECFDF5',
-
-  tealDeep: '#0D4D4D',
-  teal: '#0D9488',
-  tealLight: '#CCFBF1',
-
-  warningDeep: '#854D0E',
-  warning: '#CA8A04',
-  warningBg: '#FEF9C3',
-
-  dangerDeep: '#7C2D12',
-  danger: '#C2410C',
-  dangerBg: '#FFEDD5',
-
-  incomeDeep: '#164E63',
-  income: '#0E7490',
-  incomeBg: '#CFFAFE',
-
+  // Feature colors
+  green: '#1D9E75',
+  greenLight: '#E1F5EE',
+  greenDark: '#085041',
+  red: '#E24B4A',
+  redLight: '#FCEBEB',
+  redDark: '#A32D2D',
+  purple: '#534AB7',
+  purpleLight: '#EEEDFE',
+  purpleDark: '#3C3489',
+  blue: '#378ADD',
+  blueLight: '#E6F1FB',
+  blueDark: '#0C447C',
+  amber: '#BA7517',
+  amberLight: '#FAEEDA',
+  gray: '#888780',
+  grayLight: '#F1EFE8',
+  // Utility
+  white: '#FFFFFF',
+  offWhite: '#F9FAFB',
+  border: '#E5E7EB',
   textPrimary: '#111827',
   textSecondary: '#6B7280',
-  white: '#F9FAFB',
-  border: '#E5E7EB',
+  background: '#F9FAFB',
 } as const;
 
 export const RADIUS = {
@@ -37,7 +34,6 @@ export const RADIUS = {
 } as const;
 
 export const FONT = {
-  family: 'Inter',
   sizes: {
     xs: 11,
     sm: 12,
@@ -52,5 +48,6 @@ export const FONT = {
   weights: {
     regular: '400' as const,
     medium: '500' as const,
+    bold: '700' as const,
   },
 } as const;

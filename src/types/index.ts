@@ -1,35 +1,36 @@
-export interface Expense {
-  id: string;
-  amount: number;
-  category: string;
-  note: string;
-  date: string;
-}
-
-export interface Income {
-  id: string;
-  amount: number;
-  label: string;
-  date: string;
-}
-
-export interface Unavoidable {
-  id: string;
+export type Bill = {
+  icon: string;
   name: string;
   amount: number;
-}
+};
 
-export interface UserProfile {
+export type UserProfile = {
+  name: string;
   salary: number;
+  bills: Bill[];
+  spendBudget: number;
+  investBudget: number;
+  emergencyTarget: number;
   currency: string;
-  unavoidables: Unavoidable[];
-  emergencyFundTarget: number;
-  investmentSlice: number;
   onboardingComplete: boolean;
-}
+};
 
-export interface MonthData {
-  expenses: Expense[];
-  incomes: Income[];
-  month: string;
-}
+export type Entry = {
+  id: string;
+  note: string;
+  amount: number;
+  category: string;
+  date: string;
+  month: number;
+  year: number;
+};
+
+export type MonthData = {
+  spending: number;
+  spendEntries: Entry[];
+  investment: number;
+  investTotal: number;
+  investEntries: Entry[];
+  emergency: number;
+  emergencyEntries: Entry[];
+};

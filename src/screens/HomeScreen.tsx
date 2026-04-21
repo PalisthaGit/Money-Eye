@@ -5,42 +5,94 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT, RADIUS } from '../constants/theme';
-import { loadUserProfile, loadMonthData } from '../utils/storage';
-import {
-  calcSpendingMoney,
-  calcTotalSpent,
-  calcTotalIncome,
-  calcRemainingBudget,
-} from '../utils/calculations';
-import { UserProfile, MonthData, Expense, Income } from '../types';
+import { getUserProfile, getMonthData } from '../utils/storage';
+import { UserProfile, MonthData } from '../types';
+import { HomeStackParamList } from '../navigation';
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 18) return 'Good afternoon';
-  return 'Good evening';
-}
+type Nav = NativeStackNavigationProp<HomeStackParamList, 'Home'>;
 
 function currentMonthKey(): string {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  return `${y}-${m}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function fmt(value: number, currency: string): string {
-  return `${currency}${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${currency} ${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
-type Transaction =
-  | (Expense & { kind: 'expense' })
-  | (Income & { kind: 'income' });
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getMonthLabel(): string {
+  return new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function getDaysLeft(): number {
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return lastDay - now.getDate();
+}
+
+interface ProgressBarProps {
+  pct: number;
+  color: string;
+  trackColor: string;
+}
+
+function PlusCircle({ color }: { color: string }) {
+  return (
+    <View style={{
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: color,
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      <Text style={{ color, fontSize: 18, lineHeight: 20, fontWeight: '400' }}>+</Text>
+    </View>
+  );
+}
+
+function ProgressBar({ pct, color, trackColor }: ProgressBarProps) {
+  return (
+    <View style={[barStyles.track, { backgroundColor: trackColor }]}>
+      <View
+        style={[
+          barStyles.fill,
+          { width: `${Math.min(Math.max(pct, 0), 100)}%` as any, backgroundColor: color },
+        ]}
+      />
+    </View>
+  );
+}
+
+const barStyles = StyleSheet.create({
+  track: {
+    height: 6,
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+  },
+  fill: {
+    height: 6,
+    borderRadius: RADIUS.full,
+  },
+});
 
 export default function HomeScreen() {
+  const navigation = useNavigation<Nav>();
+  const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [monthData, setMonthData] = useState<MonthData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,14 +101,12 @@ export default function HomeScreen() {
     useCallback(() => {
       let active = true;
       async function load() {
-        setLoading(true);
-        const p = await loadUserProfile();
-        const m = await loadMonthData(currentMonthKey());
-        if (active) {
-          setProfile(p);
-          setMonthData(m);
-          setLoading(false);
-        }
+        const p = await getUserProfile();
+        const m = await getMonthData(currentMonthKey());
+        if (!active) return;
+        setProfile(p);
+        setMonthData(m);
+        setLoading(false);
       }
       load();
       return () => { active = false; };
@@ -66,113 +116,127 @@ export default function HomeScreen() {
   if (loading || !profile) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={COLORS.green} />
       </View>
     );
   }
 
-  const expenses = monthData?.expenses ?? [];
-  const incomes = monthData?.incomes ?? [];
+  const spending = monthData?.spending ?? 0;
+  const investment = monthData?.investment ?? 0;
+  const emergency = monthData?.emergency ?? 0;
+  const { spendBudget, investBudget, emergencyTarget, currency, name } = profile;
 
-  const spendingMoney = calcSpendingMoney(
-    profile.salary - profile.unavoidables.reduce((s, u) => s + u.amount, 0),
-    profile.investmentSlice
-  );
-  const totalSpent = calcTotalSpent(expenses);
-  const totalIn = calcTotalIncome(profile.salary, incomes);
-  const remaining = calcRemainingBudget(spendingMoney, totalSpent);
+  const savings = spendBudget - spending;
+  const spendPct = spendBudget > 0 ? (spending / spendBudget) * 100 : 0;
+  const savingsPct = spendBudget > 0 ? Math.max(savings / spendBudget * 100, 0) : 0;
+  const investPct = investBudget > 0 ? (investment / investBudget) * 100 : 0;
+  const emergencyPct = emergencyTarget > 0 ? (emergency / emergencyTarget) * 100 : 0;
 
-  const pctSpent = spendingMoney > 0 ? Math.min((totalSpent / spendingMoney) * 100, 100) : 0;
-  const barColor =
-    pctSpent >= 100
-      ? COLORS.danger
-      : pctSpent >= 80
-      ? COLORS.warning
-      : COLORS.primaryAccent;
-
-  const transactions: Transaction[] = [
-    ...expenses.map((e) => ({ ...e, kind: 'expense' as const })),
-    ...incomes.map((i) => ({ ...i, kind: 'income' as const })),
-  ]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  const daysLeft = getDaysLeft();
 
   return (
     <ScrollView
       style={styles.scroll}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 40 }]}
       showsVerticalScrollIndicator={false}
     >
-      {/* Greeting */}
-      <Text style={styles.greeting}>{getGreeting()}</Text>
-      <Text style={styles.subGreeting}>Here's your money snapshot</Text>
+      {/* Header */}
+      <Text style={styles.greeting}>{getGreeting()}, {name} 👋</Text>
+      <View style={styles.chipRow}>
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{getMonthLabel()}</Text>
+        </View>
+        <View style={styles.chip}>
+          <Text style={styles.chipText}>{daysLeft} days left</Text>
+        </View>
+      </View>
 
-      {/* Main spending card */}
-      <View style={styles.card}>
-        <Text style={styles.cardLabel}>Spending money left</Text>
-        <Text style={[styles.bigNumber, { color: remaining >= 0 ? COLORS.primary : COLORS.danger }]}>
-          {fmt(remaining, profile.currency)}
+      {/* Spending Card */}
+      <TouchableOpacity
+        style={[styles.card, styles.spendingCard]}
+        onPress={() => navigation.navigate('SpendingDetail')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardLabel}>SPENDING</Text>
+          <PlusCircle color={COLORS.red} />
+        </View>
+        <Text style={styles.cardBigAmount}>{fmt(spending, currency)}</Text>
+        <Text style={styles.cardSub}>of {fmt(spendBudget, currency)} this month</Text>
+        <ProgressBar pct={spendPct} color={COLORS.red} trackColor={COLORS.redLight} />
+        <View style={styles.pillRow}>
+          <View style={[styles.pill, spendPct > 100 ? styles.pillDanger : styles.pillRed]}>
+            <Text style={[styles.pillText, spendPct > 100 ? styles.pillTextDanger : { color: COLORS.red }]}>
+              {spendPct > 100 ? 'Over budget!' : `${Math.round(spendPct)}% used`}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Savings Card */}
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: COLORS.greenLight, borderColor: COLORS.green }]}
+        onPress={() => navigation.navigate('SavingsDetail')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardLabel, { color: COLORS.greenDark }]}>SAVINGS</Text>
+          <PlusCircle color={COLORS.green} />
+        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.green }]}>
+          {savings < 0 ? '-' : ''}{fmt(Math.abs(savings), currency)}
         </Text>
-        <Text style={styles.cardSub}>of {fmt(spendingMoney, profile.currency)} this month</Text>
-
-        {/* Progress bar */}
-        <View style={styles.barTrack}>
-          <View style={[styles.barFill, { width: `${pctSpent}%` as any, backgroundColor: barColor }]} />
-        </View>
-      </View>
-
-      {/* Total in / Total out */}
-      <View style={styles.row}>
-        <View style={[styles.card, styles.halfCard]}>
-          <Text style={styles.cardLabel}>Total in</Text>
-          <Text style={[styles.smallNumber, { color: COLORS.income }]}>
-            {fmt(totalIn, profile.currency)}
-          </Text>
-        </View>
-        <View style={[styles.card, styles.halfCard]}>
-          <Text style={styles.cardLabel}>Total out</Text>
-          <Text style={[styles.smallNumber, { color: COLORS.danger }]}>
-            {fmt(totalSpent, profile.currency)}
-          </Text>
-        </View>
-      </View>
-
-      {/* Investment reminder */}
-      <View style={[styles.card, { backgroundColor: COLORS.tealLight }]}>
-        <Text style={[styles.cardLabel, { color: COLORS.tealDeep }]}>Invest this month</Text>
-        <Text style={[styles.smallNumber, { color: COLORS.teal }]}>
-          {fmt(profile.investmentSlice, profile.currency)}
-        </Text>
-        <Text style={[styles.cardSub, { color: COLORS.teal }]}>Lock it away, let it grow</Text>
-      </View>
-
-      {/* Recent transactions */}
-      <Text style={styles.sectionHeading}>Recent</Text>
-      <View style={styles.card}>
-        {transactions.length === 0 ? (
-          <Text style={styles.emptyText}>No transactions yet. Tap + to add one.</Text>
-        ) : (
-          transactions.map((t, i) => (
-            <View
-              key={t.id}
-              style={[styles.txRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}
-            >
-              <Text style={styles.txLabel}>
-                {t.kind === 'expense' ? t.category : t.label}
-              </Text>
-              <Text
-                style={[
-                  styles.txAmount,
-                  { color: t.kind === 'expense' ? COLORS.danger : COLORS.income },
-                ]}
-              >
-                {t.kind === 'expense' ? '-' : '+'}
-                {fmt(t.amount, profile.currency)}
-              </Text>
+        <Text style={[styles.cardSub, { color: COLORS.greenDark }]}>unspent money this month</Text>
+        <ProgressBar pct={savingsPct} color={COLORS.green} trackColor='#A8E6D1' />
+        <View style={styles.pillRow}>
+          {savings >= 0 ? (
+            <View style={[styles.pill, { backgroundColor: COLORS.green }]}>
+              <Text style={[styles.pillText, { color: COLORS.white }]}>On track</Text>
             </View>
-          ))
-        )}
-      </View>
+          ) : (
+            <View style={[styles.pill, { backgroundColor: COLORS.amberLight }]}>
+              <Text style={[styles.pillText, { color: COLORS.amber }]}>Over budget</Text>
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+
+      {/* Investment Card */}
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: COLORS.purpleLight, borderColor: COLORS.purple }]}
+        onPress={() => navigation.navigate('InvestmentDetail')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTMENT</Text>
+          <PlusCircle color={COLORS.purple} />
+        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.purple }]}>{fmt(investment, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.purpleDark }]}>of {fmt(investBudget, currency)} planned</Text>
+        <ProgressBar pct={investPct} color={COLORS.purple} trackColor='#D6D3F8' />
+        <View style={styles.pillRow}>
+          <View style={[styles.pill, { backgroundColor: COLORS.purpleLight, borderWidth: 1, borderColor: COLORS.purple }]}>
+            <Text style={[styles.pillText, { color: COLORS.purple }]}>{Math.round(investPct)}% done</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Emergency Card — only if emergencyTarget > 0 */}
+      {emergencyTarget > 0 && (
+        <TouchableOpacity
+          style={[styles.card, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue }]}
+          onPress={() => navigation.navigate('EmergencyDetail')}
+          activeOpacity={0.85}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY FUND</Text>
+            <PlusCircle color={COLORS.blue} />
+          </View>
+          <Text style={[styles.cardBigAmount, { color: COLORS.blue }]}>{fmt(emergency, currency)}</Text>
+          <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>of {fmt(emergencyTarget, currency)} target</Text>
+          <ProgressBar pct={emergencyPct} color={COLORS.blue} trackColor='#C2DCF5' />
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -189,20 +253,31 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 60,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
   },
   greeting: {
     fontSize: FONT.sizes.xxl,
-    fontWeight: '700',
+    fontWeight: FONT.weights.bold,
     color: COLORS.textPrimary,
-    marginBottom: 4,
+    marginBottom: 12,
   },
-  subGreeting: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.textSecondary,
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 24,
+  },
+  chip: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.tag,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  chipText: {
+    fontSize: FONT.sizes.sm,
+    color: COLORS.textSecondary,
+    fontWeight: FONT.weights.medium,
   },
   card: {
     backgroundColor: COLORS.white,
@@ -212,73 +287,54 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
-  cardLabel: {
-    fontSize: FONT.sizes.sm,
-    color: COLORS.textSecondary,
+  spendingCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: COLORS.red,
+    borderColor: COLORS.border,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 6,
   },
-  bigNumber: {
-    fontSize: FONT.sizes.xxxl,
-    fontWeight: '700',
-    marginBottom: 4,
+  cardLabel: {
+    fontSize: FONT.sizes.xs,
+    fontWeight: FONT.weights.medium,
+    letterSpacing: 0.8,
+    color: COLORS.textSecondary,
   },
-  smallNumber: {
-    fontSize: FONT.sizes.xl,
-    fontWeight: '700',
+  cardBigAmount: {
+    fontSize: FONT.sizes.xxl,
+    fontWeight: FONT.weights.bold,
+    color: COLORS.textPrimary,
     marginBottom: 4,
   },
   cardSub: {
     fontSize: FONT.sizes.sm,
     color: COLORS.textSecondary,
-    marginTop: 4,
-  },
-  barTrack: {
-    height: 8,
-    backgroundColor: COLORS.border,
-    borderRadius: RADIUS.full,
-    marginTop: 12,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: 8,
-    borderRadius: RADIUS.full,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  halfCard: {
-    flex: 1,
     marginBottom: 12,
   },
-  sectionHeading: {
-    fontSize: FONT.sizes.lg,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  txRow: {
+  pillRow: {
+    marginTop: 10,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
-  txLabel: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.textPrimary,
-    flex: 1,
+  pill: {
+    borderRadius: RADIUS.tag,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  txAmount: {
-    fontSize: FONT.sizes.md,
-    fontWeight: '500',
+  pillRed: {
+    backgroundColor: COLORS.redLight,
   },
-  emptyText: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    paddingVertical: 8,
+  pillDanger: {
+    backgroundColor: COLORS.red,
+  },
+  pillText: {
+    fontSize: FONT.sizes.xs,
+    fontWeight: FONT.weights.medium,
+  },
+  pillTextDanger: {
+    color: COLORS.white,
   },
 });
