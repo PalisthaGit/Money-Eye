@@ -13,6 +13,9 @@ export type UserProfile = {
   emergencyTarget: number;
   currency: string;
   onboardingComplete: boolean;
+  investPct: number;    // default 20
+  savingsPct: number;   // default 10
+  emergencyPct: number; // default 10
 };
 
 export type Entry = {
@@ -33,4 +36,6 @@ export type MonthData = {
   investEntries: Entry[];
   emergency: number;
   emergencyEntries: Entry[];
+  savings: number;
+  savingsEntries: Entry[];
 };

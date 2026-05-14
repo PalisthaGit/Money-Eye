@@ -12,7 +12,7 @@ import { useRoute, RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT, RADIUS } from '../constants/theme';
 import { saveUserProfile } from '../utils/storage';
-import { calcBudgets, calcEmergencyTarget } from '../utils/calculations';
+import { calcBudgets, calcUnused } from '../utils/calculations';
 import { useOnboardingComplete } from '../navigation';
 import { OnboardingStackParamList } from '../navigation';
 
@@ -52,13 +52,19 @@ export default function PlanScreen() {
   const { name, salary, currency, bills } = route.params;
   const [saving, setSaving] = useState(false);
 
-  const { spend, invest, emergency, totalBills } = calcBudgets(salary, bills);
-  const emergencyTarget = calcEmergencyTarget(bills);
+  const INVEST_PCT = 20;
+  const SAVINGS_PCT = 10;
+  const EMERGENCY_PCT = 10;
 
-  const billsPct = salary > 0 ? Math.min((totalBills / salary) * 100, 100) : 0;
-  const spendPct = salary > 0 ? Math.min((spend / salary) * 100, 100) : 0;
-  const investPct = salary > 0 ? Math.min((invest / salary) * 100, 100) : 0;
-  const emergencyPct = salary > 0 ? Math.min((emergency / salary) * 100, 100) : 0;
+  const { spendBudget, investBudget, savingsBudget, emergencyBudget } = calcBudgets(
+    salary, INVEST_PCT, SAVINGS_PCT, EMERGENCY_PCT,
+  );
+  const unused = calcUnused(salary, spendBudget + investBudget + savingsBudget + emergencyBudget);
+
+  const spendPct = salary > 0 ? Math.min((spendBudget / salary) * 100, 100) : 0;
+  const investPct = salary > 0 ? Math.min((investBudget / salary) * 100, 100) : 0;
+  const savingsPct = salary > 0 ? Math.min((savingsBudget / salary) * 100, 100) : 0;
+  const emergencyPct = salary > 0 ? Math.min((emergencyBudget / salary) * 100, 100) : 0;
 
   async function handleStart() {
     setSaving(true);
@@ -66,11 +72,14 @@ export default function PlanScreen() {
       name,
       salary,
       bills,
-      spendBudget: spend,
-      investBudget: invest,
-      emergencyTarget,
+      spendBudget,
+      investBudget,
+      emergencyTarget: emergencyBudget * 6,
       currency,
       onboardingComplete: true,
+      investPct: INVEST_PCT,
+      savingsPct: SAVINGS_PCT,
+      emergencyPct: EMERGENCY_PCT,
     });
     onComplete();
   }
@@ -85,38 +94,43 @@ export default function PlanScreen() {
       <Text style={styles.title}>{name}, here's your plan</Text>
       <Text style={styles.subtitle}>Based on your salary and fixed bills.</Text>
 
-      {/* Fixed bills card */}
-      <View style={[styles.card, { backgroundColor: COLORS.grayLight, borderColor: COLORS.gray }]}>
-        <Text style={[styles.cardLabel, { color: COLORS.gray }]}>FIXED BILLS</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.textPrimary }]}>{fmt(totalBills, currency)}</Text>
-        <Text style={styles.cardSub}>{Math.round(billsPct)}% of salary</Text>
-        <AnimatedBar pct={billsPct} color={COLORS.gray} trackColor={COLORS.border} />
-      </View>
-
       {/* Spending budget card */}
       <View style={[styles.card, { backgroundColor: COLORS.redLight, borderColor: COLORS.red }]}>
-        <Text style={[styles.cardLabel, { color: COLORS.redDark }]}>SPENDING BUDGET</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.red }]}>{fmt(spend, currency)}</Text>
+        <Text style={[styles.cardLabel, { color: COLORS.redDark }]}>SPENDING</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.red }]}>{fmt(spendBudget, currency)}</Text>
         <Text style={[styles.cardSub, { color: COLORS.redDark }]}>guilt-free spending</Text>
         <AnimatedBar pct={spendPct} color={COLORS.red} trackColor='#F9C8C8' />
       </View>
 
-      {/* Investment card */}
+      {/* Investing card */}
       <View style={[styles.card, { backgroundColor: COLORS.purpleLight, borderColor: COLORS.purple }]}>
-        <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTMENT · 20%</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.purple }]}>{fmt(invest, currency)}</Text>
+        <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTING</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.purple }]}>{fmt(investBudget, currency)}</Text>
         <Text style={[styles.cardSub, { color: COLORS.purpleDark }]}>pay yourself first</Text>
         <AnimatedBar pct={investPct} color={COLORS.purple} trackColor='#D6D3F8' />
       </View>
 
+      {/* Savings card */}
+      <View style={[styles.card, { backgroundColor: COLORS.greenLight, borderColor: COLORS.green }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.greenDark }]}>SAVINGS</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.green }]}>{fmt(savingsBudget, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.greenDark }]}>build your savings</Text>
+        <AnimatedBar pct={savingsPct} color={COLORS.green} trackColor='#A8E6D1' />
+      </View>
+
       {/* Emergency fund card */}
       <View style={[styles.card, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue }]}>
-        <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY FUND · 10%</Text>
-        <Text style={[styles.cardAmount, { color: COLORS.blue }]}>{fmt(emergency, currency)}/month</Text>
-        <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>
-          target: {fmt(emergencyTarget, currency)} (6 months of bills)
-        </Text>
+        <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.blue }]}>{fmt(emergencyBudget, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>safety net contributions</Text>
         <AnimatedBar pct={emergencyPct} color={COLORS.blue} trackColor='#C2DCF5' />
+      </View>
+
+      {/* Unused card */}
+      <View style={[styles.card, { backgroundColor: COLORS.grayLight, borderColor: COLORS.gray }]}>
+        <Text style={[styles.cardLabel, { color: COLORS.gray }]}>UNUSED</Text>
+        <Text style={[styles.cardAmount, { color: COLORS.textPrimary }]}>{fmt(unused, currency)}</Text>
+        <Text style={styles.cardSub}>available</Text>
       </View>
 
       <TouchableOpacity

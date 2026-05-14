@@ -14,6 +14,7 @@ import { COLORS, FONT, RADIUS } from '../constants/theme';
 import { getUserProfile, getMonthData } from '../utils/storage';
 import { UserProfile, MonthData } from '../types';
 import { HomeStackParamList } from '../navigation';
+import { calcBudgets, calcUnused } from '../utils/calculations';
 
 type Nav = NativeStackNavigationProp<HomeStackParamList, 'Home'>;
 
@@ -124,13 +125,22 @@ export default function HomeScreen() {
   const spending = monthData?.spending ?? 0;
   const investment = monthData?.investment ?? 0;
   const emergency = monthData?.emergency ?? 0;
-  const { spendBudget, investBudget, emergencyTarget, currency, name } = profile;
+  const savingsLogged = monthData?.savings ?? 0;
+  const { salary, currency, name } = profile;
+  const { spendBudget, investBudget, savingsBudget, emergencyBudget } = calcBudgets(
+    salary,
+    profile.investPct ?? 20,
+    profile.savingsPct ?? 10,
+    profile.emergencyPct ?? 10,
+  );
 
-  const savings = spendBudget - spending;
+  const totalLogged = spending + investment + savingsLogged + emergency;
+  const unused = calcUnused(salary, totalLogged);
+
   const spendPct = spendBudget > 0 ? (spending / spendBudget) * 100 : 0;
-  const savingsPct = spendBudget > 0 ? Math.max(savings / spendBudget * 100, 0) : 0;
-  const investPct = investBudget > 0 ? (investment / investBudget) * 100 : 0;
-  const emergencyPct = emergencyTarget > 0 ? (emergency / emergencyTarget) * 100 : 0;
+  const investProgress = investBudget > 0 ? (investment / investBudget) * 100 : 0;
+  const savingsProgress = savingsBudget > 0 ? (savingsLogged / savingsBudget) * 100 : 0;
+  const emergencyProgress = emergencyBudget > 0 ? (emergency / emergencyBudget) * 100 : 0;
 
   const daysLeft = getDaysLeft();
 
@@ -173,6 +183,26 @@ export default function HomeScreen() {
         </View>
       </TouchableOpacity>
 
+      {/* Investing Card */}
+      <TouchableOpacity
+        style={[styles.card, { backgroundColor: COLORS.purpleLight, borderColor: COLORS.purple }]}
+        onPress={() => navigation.navigate('InvestmentDetail')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTING</Text>
+          <PlusCircle color={COLORS.purple} />
+        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.purple }]}>{fmt(investment, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.purpleDark }]}>of {fmt(investBudget, currency)}</Text>
+        <ProgressBar pct={investProgress} color={COLORS.purple} trackColor='#D6D3F8' />
+        <View style={styles.pillRow}>
+          <View style={[styles.pill, { backgroundColor: COLORS.purpleLight, borderWidth: 1, borderColor: COLORS.purple }]}>
+            <Text style={[styles.pillText, { color: COLORS.purple }]}>{Math.round(investProgress)}% done</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
       {/* Savings Card */}
       <TouchableOpacity
         style={[styles.card, { backgroundColor: COLORS.greenLight, borderColor: COLORS.green }]}
@@ -183,60 +213,34 @@ export default function HomeScreen() {
           <Text style={[styles.cardLabel, { color: COLORS.greenDark }]}>SAVINGS</Text>
           <PlusCircle color={COLORS.green} />
         </View>
-        <Text style={[styles.cardBigAmount, { color: COLORS.green }]}>
-          {savings < 0 ? '-' : ''}{fmt(Math.abs(savings), currency)}
-        </Text>
-        <Text style={[styles.cardSub, { color: COLORS.greenDark }]}>unspent money this month</Text>
-        <ProgressBar pct={savingsPct} color={COLORS.green} trackColor='#A8E6D1' />
-        <View style={styles.pillRow}>
-          {savings >= 0 ? (
-            <View style={[styles.pill, { backgroundColor: COLORS.green }]}>
-              <Text style={[styles.pillText, { color: COLORS.white }]}>On track</Text>
-            </View>
-          ) : (
-            <View style={[styles.pill, { backgroundColor: COLORS.amberLight }]}>
-              <Text style={[styles.pillText, { color: COLORS.amber }]}>Over budget</Text>
-            </View>
-          )}
-        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.green }]}>{fmt(savingsLogged, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.greenDark }]}>of {fmt(savingsBudget, currency)}</Text>
+        <ProgressBar pct={savingsProgress} color={COLORS.green} trackColor='#A8E6D1' />
       </TouchableOpacity>
 
-      {/* Investment Card */}
+      {/* Emergency Card */}
       <TouchableOpacity
-        style={[styles.card, { backgroundColor: COLORS.purpleLight, borderColor: COLORS.purple }]}
-        onPress={() => navigation.navigate('InvestmentDetail')}
+        style={[styles.card, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue }]}
+        onPress={() => navigation.navigate('EmergencyDetail')}
         activeOpacity={0.85}
       >
         <View style={styles.cardHeader}>
-          <Text style={[styles.cardLabel, { color: COLORS.purpleDark }]}>INVESTMENT</Text>
-          <PlusCircle color={COLORS.purple} />
+          <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY</Text>
+          <PlusCircle color={COLORS.blue} />
         </View>
-        <Text style={[styles.cardBigAmount, { color: COLORS.purple }]}>{fmt(investment, currency)}</Text>
-        <Text style={[styles.cardSub, { color: COLORS.purpleDark }]}>of {fmt(investBudget, currency)} planned</Text>
-        <ProgressBar pct={investPct} color={COLORS.purple} trackColor='#D6D3F8' />
-        <View style={styles.pillRow}>
-          <View style={[styles.pill, { backgroundColor: COLORS.purpleLight, borderWidth: 1, borderColor: COLORS.purple }]}>
-            <Text style={[styles.pillText, { color: COLORS.purple }]}>{Math.round(investPct)}% done</Text>
-          </View>
-        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.blue }]}>{fmt(emergency, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>of {fmt(emergencyBudget, currency)}</Text>
+        <ProgressBar pct={emergencyProgress} color={COLORS.blue} trackColor='#C2DCF5' />
       </TouchableOpacity>
 
-      {/* Emergency Card — only if emergencyTarget > 0 */}
-      {emergencyTarget > 0 && (
-        <TouchableOpacity
-          style={[styles.card, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue }]}
-          onPress={() => navigation.navigate('EmergencyDetail')}
-          activeOpacity={0.85}
-        >
-          <View style={styles.cardHeader}>
-            <Text style={[styles.cardLabel, { color: COLORS.blueDark }]}>EMERGENCY FUND</Text>
-            <PlusCircle color={COLORS.blue} />
-          </View>
-          <Text style={[styles.cardBigAmount, { color: COLORS.blue }]}>{fmt(emergency, currency)}</Text>
-          <Text style={[styles.cardSub, { color: COLORS.blueDark }]}>of {fmt(emergencyTarget, currency)} target</Text>
-          <ProgressBar pct={emergencyPct} color={COLORS.blue} trackColor='#C2DCF5' />
-        </TouchableOpacity>
-      )}
+      {/* Unused Card — display only */}
+      <View style={[styles.card, { backgroundColor: COLORS.grayLight, borderColor: COLORS.gray }]}>
+        <View style={styles.cardHeader}>
+          <Text style={[styles.cardLabel, { color: COLORS.gray }]}>UNUSED</Text>
+        </View>
+        <Text style={[styles.cardBigAmount, { color: COLORS.textPrimary }]}>{fmt(unused, currency)}</Text>
+        <Text style={[styles.cardSub, { color: COLORS.textSecondary }]}>available</Text>
+      </View>
     </ScrollView>
   );
 }

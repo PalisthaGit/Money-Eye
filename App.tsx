@@ -30,6 +30,8 @@ async function ensureCurrentMonth(): Promise<void> {
     investEntries: [],
     emergency: prevData?.emergency ?? 0,
     emergencyEntries: [],
+    savings: 0,
+    savingsEntries: [],
   });
 }
 

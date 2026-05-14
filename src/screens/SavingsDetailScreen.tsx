@@ -1,18 +1,21 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  Animated,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONT, RADIUS } from '../constants/theme';
-import { getUserProfile, getMonthData } from '../utils/storage';
+import { getUserProfile, getMonthData, saveMonthData } from '../utils/storage';
 import { UserProfile, MonthData, Entry } from '../types';
 import { HomeStackParamList } from '../navigation';
+import { calcBudgets } from '../utils/calculations';
 
 type Nav = NativeStackNavigationProp<HomeStackParamList, 'SavingsDetail'>;
 
@@ -25,11 +28,25 @@ function fmt(value: number, currency: string): string {
   return `${currency} ${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+const CATEGORIES = ['Goal', 'General', 'Other'];
+
 export default function SavingsDetailScreen() {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [monthData, setMonthData] = useState<MonthData | null>(null);
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [note, setNote] = useState('');
+  const barAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(
     useCallback(() => {
@@ -46,23 +63,85 @@ export default function SavingsDetailScreen() {
     }, [])
   );
 
+  useEffect(() => {
+    if (!profile || !monthData) return;
+    const { savingsBudget } = calcBudgets(
+      profile.salary,
+      profile.investPct ?? 20,
+      profile.savingsPct ?? 10,
+      profile.emergencyPct ?? 10,
+    );
+    const pct = savingsBudget > 0
+      ? Math.min((monthData.savings / savingsBudget) * 100, 100)
+      : 0;
+    Animated.timing(barAnim, {
+      toValue: pct,
+      duration: 700,
+      useNativeDriver: false,
+    }).start();
+  }, [profile, monthData]);
+
+  async function handleAddSaving() {
+    const num = parseFloat(amount.replace(/,/g, ''));
+    if (!num || num <= 0 || !category || !profile) return;
+
+    const key = currentMonthKey();
+    const existing = await getMonthData(key);
+    const now = new Date();
+    const newEntry: Entry = {
+      id: generateId(),
+      note,
+      amount: num,
+      category,
+      date: now.toISOString(),
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+    };
+
+    const base: MonthData = existing ?? {
+      spending: 0, spendEntries: [],
+      investment: 0, investTotal: 0, investEntries: [],
+      emergency: 0, emergencyEntries: [],
+      savings: 0, savingsEntries: [],
+    };
+
+    const newEntries = [...(base.savingsEntries ?? []), newEntry];
+    const newSavings = newEntries.reduce((s, e) => s + e.amount, 0);
+    const updated: MonthData = { ...base, savingsEntries: newEntries, savings: newSavings };
+    await saveMonthData(key, updated);
+    setMonthData(updated);
+    setAmount('');
+    setNote('');
+    setCategory('');
+  }
+
   if (!profile) {
     return <View style={styles.flex} />;
   }
 
-  const spending = monthData?.spending ?? 0;
-  const savings = profile.spendBudget - spending;
-  const isOverBudget = savings < 0;
-
-  const topOverspend = [...(monthData?.spendEntries ?? [])]
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, 5);
+  const savings = monthData?.savings ?? 0;
+  const savingsEntries = [...(monthData?.savingsEntries ?? [])].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+  const { savingsBudget } = calcBudgets(
+    profile.salary,
+    profile.investPct ?? 20,
+    profile.savingsPct ?? 10,
+    profile.emergencyPct ?? 10,
+  );
+  const savingsPct = savingsBudget > 0
+    ? Math.min((savings / savingsBudget) * 100, 100)
+    : 0;
+  const barWidth = barAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+  const canAdd = parseFloat(amount.replace(/,/g, '')) > 0 && category.length > 0;
 
   return (
-    <ScrollView
+    <KeyboardAwareScrollView
       style={styles.flex}
       contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
-      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      enableOnAndroid
+      extraScrollHeight={16}
     >
       {/* Back */}
       <TouchableOpacity
@@ -74,54 +153,93 @@ export default function SavingsDetailScreen() {
 
       {/* Hero */}
       <View style={styles.heroBanner}>
-        <Text style={styles.heroAmount}>
-          {isOverBudget ? '-' : ''}{fmt(Math.abs(savings), profile.currency)}
-        </Text>
-        <Text style={styles.heroLabel}>
-          {isOverBudget ? 'over budget' : 'saved this month'}
-        </Text>
+        <Text style={styles.heroAmount}>{fmt(savings, profile.currency)}</Text>
+        <Text style={styles.heroLabel}>saved this month</Text>
+        <Text style={styles.heroSub}>of {fmt(savingsBudget, profile.currency)} planned</Text>
+        <View style={styles.heroBarTrack}>
+          <Animated.View style={[styles.heroBarFill, { width: barWidth }]} />
+        </View>
       </View>
 
-      {/* Info box */}
+      {/* Stat box */}
       <View style={styles.section}>
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            Savings = your spending budget minus what you spent. It calculates itself.
-          </Text>
+        <View style={styles.statRow}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Progress</Text>
+            <Text style={[styles.statValue, { color: COLORS.green }]}>{Math.round(savingsPct)}% done</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Remaining</Text>
+            <Text style={styles.statValue}>{fmt(Math.max(0, savingsBudget - savings), profile.currency)}</Text>
+          </View>
         </View>
       </View>
 
-      {/* Overspend section */}
-      {isOverBudget && (
-        <View style={styles.section}>
-          <View style={styles.warningBox}>
-            <Text style={styles.warningText}>
-              You went over budget by {fmt(Math.abs(savings), profile.currency)}. Spending that exceeded your budget came from your savings.
-            </Text>
+      {/* Log a saving */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Log a saving</Text>
+        <View style={styles.card}>
+          <TextInput
+            style={styles.input}
+            placeholder="Amount"
+            placeholderTextColor={COLORS.textSecondary}
+            keyboardType="numeric"
+            value={amount}
+            onChangeText={setAmount}
+          />
+          <View style={styles.categoryRow}>
+            {CATEGORIES.map(cat => (
+              <TouchableOpacity
+                key={cat}
+                style={[styles.categoryPill, category === cat && { backgroundColor: COLORS.green, borderColor: COLORS.green }]}
+                onPress={() => setCategory(cat)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.categoryPillText, category === cat && { color: COLORS.white }]}>{cat}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
-
-          {topOverspend.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>Top spending items</Text>
-              <View style={styles.card}>
-                {topOverspend.map((entry, i) => (
-                  <View
-                    key={entry.id}
-                    style={[styles.entryRow, i < topOverspend.length - 1 && styles.entryBorder]}
-                  >
-                    <View style={styles.entryInfo}>
-                      <Text style={styles.entryNote}>{entry.note || entry.category}</Text>
-                      <Text style={styles.entryCategory}>{entry.category}</Text>
-                    </View>
-                    <Text style={styles.entryAmount}>-{fmt(entry.amount, profile.currency)}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
+          <TextInput
+            style={styles.input}
+            placeholder="Note (optional)"
+            placeholderTextColor={COLORS.textSecondary}
+            value={note}
+            onChangeText={setNote}
+          />
+          <TouchableOpacity
+            style={[styles.addBtn, !canAdd && styles.addBtnDisabled]}
+            onPress={handleAddSaving}
+            activeOpacity={0.85}
+            disabled={!canAdd}
+          >
+            <Text style={styles.addBtnText}>Add saving</Text>
+          </TouchableOpacity>
         </View>
-      )}
-    </ScrollView>
+      </View>
+
+      {/* This month */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>This month</Text>
+        {savingsEntries.length === 0 ? (
+          <Text style={styles.emptyText}>No savings logged yet.</Text>
+        ) : (
+          <View style={styles.card}>
+            {savingsEntries.map((entry, i) => (
+              <View key={entry.id} style={[styles.entryRow, i < savingsEntries.length - 1 && styles.entryBorder]}>
+                <View style={[styles.dot, { backgroundColor: COLORS.green }]} />
+                <View style={styles.entryInfo}>
+                  <Text style={styles.entryNote}>{entry.note || entry.category}</Text>
+                  <Text style={styles.entryDate}>{fmtDate(entry.date)}</Text>
+                </View>
+                <Text style={[styles.entryAmount, { color: COLORS.green }]}>
+                  {fmt(entry.amount, profile.currency)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -151,36 +269,51 @@ const styles = StyleSheet.create({
   },
   heroLabel: {
     fontSize: FONT.sizes.md,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 4,
+  },
+  heroSub: {
+    fontSize: FONT.sizes.md2,
+    color: COLORS.white,
+    fontWeight: FONT.weights.medium,
+    marginBottom: 16,
+  },
+  heroBarTrack: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+  },
+  heroBarFill: {
+    height: 6,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.full,
   },
   section: {
     paddingHorizontal: 20,
     marginBottom: 20,
   },
-  infoBox: {
-    backgroundColor: COLORS.greenLight,
+  statRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: COLORS.white,
     borderRadius: RADIUS.card,
     padding: 16,
     borderWidth: 1,
-    borderColor: COLORS.green,
+    borderColor: COLORS.border,
   },
-  infoText: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.greenDark,
-    lineHeight: 22,
+  statLabel: {
+    fontSize: FONT.sizes.sm,
+    color: COLORS.textSecondary,
+    marginBottom: 6,
   },
-  warningBox: {
-    backgroundColor: COLORS.amberLight,
-    borderRadius: RADIUS.card,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.amber,
-    marginBottom: 16,
-  },
-  warningText: {
-    fontSize: FONT.sizes.md,
-    color: COLORS.amber,
-    lineHeight: 22,
+  statValue: {
+    fontSize: FONT.sizes.md2,
+    fontWeight: FONT.weights.bold,
+    color: COLORS.textPrimary,
   },
   sectionTitle: {
     fontSize: FONT.sizes.md2,
@@ -195,14 +328,71 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  input: {
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.input,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: FONT.sizes.md,
+    color: COLORS.textPrimary,
+    marginBottom: 12,
+    backgroundColor: COLORS.background,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  categoryPill: {
+    borderRadius: RADIUS.tag,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+  categoryPillText: {
+    fontSize: FONT.sizes.sm,
+    color: COLORS.textSecondary,
+    fontWeight: FONT.weights.medium,
+  },
+  addBtn: {
+    backgroundColor: COLORS.green,
+    borderRadius: RADIUS.button,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtnDisabled: {
+    opacity: 0.4,
+  },
+  addBtnText: {
+    fontSize: FONT.sizes.md2,
+    fontWeight: FONT.weights.bold,
+    color: COLORS.white,
+  },
+  emptyText: {
+    fontSize: FONT.sizes.md,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
   entryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
+    gap: 10,
   },
   entryBorder: {
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
   entryInfo: {
     flex: 1,
@@ -212,7 +402,7 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontWeight: FONT.weights.medium,
   },
-  entryCategory: {
+  entryDate: {
     fontSize: FONT.sizes.sm,
     color: COLORS.textSecondary,
     marginTop: 2,
@@ -220,6 +410,5 @@ const styles = StyleSheet.create({
   entryAmount: {
     fontSize: FONT.sizes.md,
     fontWeight: FONT.weights.bold,
-    color: COLORS.red,
   },
 });
